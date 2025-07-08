@@ -1859,7 +1859,7 @@ class BluetoothMeshService: NSObject {
                     if isFirstAnnounce {
                         announcedPeers.insert(senderID)
                         DispatchQueue.main.async {
-                            self.delegate?.didConnectToPeer(nickname)
+                            self.delegate?.didConnectToPeer(senderID)
                         }
                         self.notifyPeerListUpdate(immediate: true)
                         
@@ -1931,7 +1931,7 @@ class BluetoothMeshService: NSObject {
                         
                         // Show leave message
                         DispatchQueue.main.async {
-                            self.delegate?.didDisconnectFromPeer(nickname)
+                            self.delegate?.didDisconnectFromPeer(senderID)
                         }
                         self.notifyPeerListUpdate()
                         
@@ -2406,7 +2406,7 @@ extension BluetoothMeshService: CBCentralManagerDelegate {
             
             if let nickname = nickname, nickname != peerID {
                 DispatchQueue.main.async {
-                    self.delegate?.didDisconnectFromPeer(nickname)
+                    self.delegate?.didDisconnectFromPeer(peerID)
                 }
             }
             self.notifyPeerListUpdate()
