@@ -1216,6 +1216,19 @@ class ChatViewModel: ObservableObject {
         return nicknames.first(where: { $0.value == nickname })?.key
     }
 
+    func getPeerIDForDisplayName(_ name: String) -> String? {
+        if let id = getPeerIDForNickname(name) {
+            return id
+        }
+        let nicknames = meshService.getPeerNicknames()
+        for (id, _) in nicknames {
+            if displayName(for: id) == name {
+                return id
+            }
+        }
+        return nil
+    }
+
     static func computeDisplayName(peerID: String,
                                    nickname: String?,
                                    allNicknames: [String: String],
@@ -1358,7 +1371,7 @@ class ChatViewModel: ObservableObject {
         let beforeCursor = String(text.prefix(cursorPosition))
         
         // Look for @ pattern
-        let pattern = "@([a-zA-Z0-9_]*)$"
+        let pattern = "@([a-zA-Z0-9_-]*)$"
         guard let regex = try? NSRegularExpression(pattern: pattern, options: []),
               let match = regex.firstMatch(in: beforeCursor, options: [], range: NSRange(location: 0, length: beforeCursor.count)) else {
             showAutocomplete = false
@@ -1445,7 +1458,7 @@ class ChatViewModel: ObservableObject {
         var processedContent = AttributedString()
         
         // Regular expressions for mentions and hashtags
-        let mentionPattern = "@([a-zA-Z0-9_]+)"
+        let mentionPattern = "@([a-zA-Z0-9_]+(?:-[a-zA-Z0-9]{4})?)"
         let hashtagPattern = "#([a-zA-Z0-9_]+)"
         
         let mentionRegex = try? NSRegularExpression(pattern: mentionPattern, options: [])
@@ -1487,7 +1500,7 @@ class ChatViewModel: ObservableObject {
 
                     // Replace with display name if we know the peer
                     let nick = String(matchText.dropFirst())
-                    if let peerID = getPeerIDForNickname(nick) {
+                    if let peerID = getPeerIDForDisplayName(nick) {
                         matchText = "@" + displayName(for: peerID)
                     }
                 } else {
@@ -1557,7 +1570,7 @@ class ChatViewModel: ObservableObject {
             // Process content with hashtags and mentions
             let content = message.content
             let hashtagPattern = "#([a-zA-Z0-9_]+)"
-            let mentionPattern = "@([a-zA-Z0-9_]+)"
+            let mentionPattern = "@([a-zA-Z0-9_]+(?:-[a-zA-Z0-9]{4})?)"
             
             let hashtagRegex = try? NSRegularExpression(pattern: hashtagPattern, options: [])
             let mentionRegex = try? NSRegularExpression(pattern: mentionPattern, options: [])
@@ -1607,7 +1620,7 @@ class ChatViewModel: ObservableObject {
                         matchStyle.foregroundColor = Color.orange
 
                         let nick = String(matchText.dropFirst())
-                        if let peerID = getPeerIDForNickname(nick) {
+                        if let peerID = getPeerIDForDisplayName(nick) {
                             matchText = "@" + displayName(for: peerID)
                         }
                     }
@@ -1695,7 +1708,7 @@ class ChatViewModel: ObservableObject {
             var processedContent = AttributedString()
             
             // Regular expression to find @mentions
-            let pattern = "@([a-zA-Z0-9_]+)"
+            let pattern = "@([a-zA-Z0-9_]+(?:-[a-zA-Z0-9]{4})?)"
             let regex = try? NSRegularExpression(pattern: pattern, options: [])
             let matches = regex?.matches(in: contentText, options: [], range: NSRange(location: 0, length: contentText.count)) ?? []
             
