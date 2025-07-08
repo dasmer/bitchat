@@ -1213,7 +1213,19 @@ class ChatViewModel: ObservableObject {
     
     func getPeerIDForNickname(_ nickname: String) -> String? {
         let nicknames = meshService.getPeerNicknames()
-        return nicknames.first(where: { $0.value == nickname })?.key
+
+        // Gather all peerIDs that match the nickname
+        let matches = nicknames.filter { $0.value == nickname }
+
+        // Prefer a peer that is not ourselves when multiple peers share
+        // the same nickname. This prevents accidentally resolving to our
+        // own peerID when mentioning someone with the same name.
+        if let match = matches.first(where: { $0.key != meshService.myPeerID }) {
+            return match.key
+        }
+
+        // Fallback to the first match (which may be our own ID)
+        return matches.first?.key
     }
 
     static func computeDisplayName(peerID: String,
@@ -1407,7 +1419,7 @@ class ChatViewModel: ObservableObject {
     func completeNickname(_ peerID: String, in text: inout String) -> Int {
         guard let range = autocompleteRange else { return text.count }
 
-        let nicknameToInsert = meshService.getPeerNicknames()[peerID] ?? peerID
+        let nicknameToInsert = displayName(for: peerID)
 
         // Replace the @partial with @nickname
         let nsText = text as NSString
@@ -1445,7 +1457,7 @@ class ChatViewModel: ObservableObject {
         var processedContent = AttributedString()
         
         // Regular expressions for mentions and hashtags
-        let mentionPattern = "@([a-zA-Z0-9_]+)"
+        let mentionPattern = "@([a-zA-Z0-9_]+)(?:-[a-zA-Z0-9]+)?"
         let hashtagPattern = "#([a-zA-Z0-9_]+)"
         
         let mentionRegex = try? NSRegularExpression(pattern: mentionPattern, options: [])
@@ -1486,8 +1498,9 @@ class ChatViewModel: ObservableObject {
                     matchStyle.foregroundColor = Color.orange
 
                     // Replace with display name if we know the peer
-                    let nick = String(matchText.dropFirst())
-                    if let peerID = getPeerIDForNickname(nick) {
+                    let rawNick = String(matchText.dropFirst())
+                    let baseNick = rawNick.components(separatedBy: "-").first ?? rawNick
+                    if let peerID = getPeerIDForNickname(baseNick) {
                         matchText = "@" + displayName(for: peerID)
                     }
                 } else {
@@ -1557,7 +1570,7 @@ class ChatViewModel: ObservableObject {
             // Process content with hashtags and mentions
             let content = message.content
             let hashtagPattern = "#([a-zA-Z0-9_]+)"
-            let mentionPattern = "@([a-zA-Z0-9_]+)"
+            let mentionPattern = "@([a-zA-Z0-9_]+)(?:-[a-zA-Z0-9]+)?"
             
             let hashtagRegex = try? NSRegularExpression(pattern: hashtagPattern, options: [])
             let mentionRegex = try? NSRegularExpression(pattern: mentionPattern, options: [])
@@ -1604,8 +1617,9 @@ class ChatViewModel: ObservableObject {
                     } else if type == "mention" {
                         matchStyle.foregroundColor = Color.orange
 
-                        let nick = String(matchText.dropFirst())
-                        if let peerID = getPeerIDForNickname(nick) {
+                        let rawNick = String(matchText.dropFirst())
+                        let baseNick = rawNick.components(separatedBy: "-").first ?? rawNick
+                        if let peerID = getPeerIDForNickname(baseNick) {
                             matchText = "@" + displayName(for: peerID)
                         }
                     }
@@ -1693,7 +1707,7 @@ class ChatViewModel: ObservableObject {
             var processedContent = AttributedString()
             
             // Regular expression to find @mentions
-            let pattern = "@([a-zA-Z0-9_]+)"
+            let pattern = "@([a-zA-Z0-9_]+)(?:-[a-zA-Z0-9]+)?"
             let regex = try? NSRegularExpression(pattern: pattern, options: [])
             let matches = regex?.matches(in: contentText, options: [], range: NSRange(location: 0, length: contentText.count)) ?? []
             
@@ -3008,7 +3022,7 @@ extension ChatViewModel: BitchatDelegate {
     }
     
     private func parseMentions(from content: String) -> [String] {
-        let pattern = "@([a-zA-Z0-9_]+)"
+        let pattern = "@([a-zA-Z0-9_]+)(?:-[a-zA-Z0-9]+)?"
         let regex = try? NSRegularExpression(pattern: pattern, options: [])
         let matches = regex?.matches(in: content, options: [], range: NSRange(location: 0, length: content.count)) ?? []
         
