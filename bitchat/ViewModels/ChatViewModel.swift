@@ -1215,6 +1215,15 @@ class ChatViewModel: ObservableObject {
         let nicknames = meshService.getPeerNicknames()
         return nicknames.first(where: { $0.value == nickname })?.key
     }
+
+    func displayName(for peerID: String) -> String {
+        if peerID == meshService.myPeerID {
+            return nickname
+        }
+
+        let peerNicknames = meshService.getPeerNicknames()
+        return peerNicknames[peerID] ?? "person-\(peerID.prefix(4))"
+    }
     
     // PANIC: Emergency data clearing for activist safety
     func panicClearAllData() {
