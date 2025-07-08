@@ -169,7 +169,7 @@ struct ContentView: View {
     private var headerView: some View {
         HStack {
             if let privatePeerID = viewModel.selectedPrivateChatPeer,
-               let privatePeerNick = viewModel.meshService.getPeerNicknames()[privatePeerID] {
+               let _ = viewModel.meshService.getPeerNicknames()[privatePeerID] {
                 // Private chat header
                 Button(action: {
                     viewModel.endPrivateChat()
@@ -190,7 +190,7 @@ struct ContentView: View {
                     Image(systemName: "lock.fill")
                         .font(.system(size: 14))
                         .foregroundColor(Color.orange)
-                    Text("\(privatePeerNick)")
+                    Text("\(viewModel.displayName(for: privatePeerID))")
                         .font(.system(size: 16, weight: .medium, design: .monospaced))
                         .foregroundColor(Color.orange)
                 }
@@ -487,12 +487,12 @@ struct ContentView: View {
             // @mentions autocomplete
             if viewModel.showAutocomplete && !viewModel.autocompleteSuggestions.isEmpty {
                 VStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(viewModel.autocompleteSuggestions.enumerated()), id: \.element) { index, suggestion in
+                    ForEach(Array(viewModel.autocompleteSuggestions.enumerated()), id: \.element) { index, peerID in
                         Button(action: {
-                            _ = viewModel.completeNickname(suggestion, in: &messageText)
+                            _ = viewModel.completeNickname(peerID, in: &messageText)
                         }) {
                             HStack {
-                                Text("@\(suggestion)")
+                                Text("@\(viewModel.displayName(for: peerID))")
                                     .font(.system(size: 11, design: .monospaced))
                                     .foregroundColor(textColor)
                                     .fontWeight(.medium)
@@ -591,21 +591,21 @@ struct ContentView: View {
             
             HStack(alignment: .center, spacing: 4) {
             if viewModel.selectedPrivateChatPeer != nil {
-                Text("<@\(viewModel.nickname)> →")
+                Text("<@\(viewModel.displayName(for: viewModel.meshService.myPeerID))> →")
                     .font(.system(size: 12, weight: .medium, design: .monospaced))
                     .foregroundColor(Color.orange)
                     .lineLimit(1)
                     .fixedSize()
                     .padding(.leading, 12)
             } else if let currentChannel = viewModel.currentChannel, viewModel.passwordProtectedChannels.contains(currentChannel) {
-                Text("<@\(viewModel.nickname)> →")
+                Text("<@\(viewModel.displayName(for: viewModel.meshService.myPeerID))> →")
                     .font(.system(size: 12, weight: .medium, design: .monospaced))
                     .foregroundColor(Color.orange)
                     .lineLimit(1)
                     .fixedSize()
                     .padding(.leading, 12)
             } else {
-                Text("<@\(viewModel.nickname)>")
+                Text("<@\(viewModel.displayName(for: viewModel.meshService.myPeerID))>")
                     .font(.system(size: 12, weight: .medium, design: .monospaced))
                     .foregroundColor(textColor)
                     .lineLimit(1)
@@ -917,18 +917,18 @@ struct ContentView: View {
                         let sortedPeers = peersToShow.sorted { peer1, peer2 in
                             let isFav1 = viewModel.isFavorite(peerID: peer1)
                             let isFav2 = viewModel.isFavorite(peerID: peer2)
-                            
+
                             if isFav1 != isFav2 {
                                 return isFav1 // Favorites come first
                             }
-                            
-                            let name1 = peerNicknames[peer1] ?? "person-\(peer1.prefix(4))"
-                            let name2 = peerNicknames[peer2] ?? "person-\(peer2.prefix(4))"
+
+                            let name1 = viewModel.displayName(for: peer1)
+                            let name2 = viewModel.displayName(for: peer2)
                             return name1 < name2
                         }
                         
                         ForEach(sortedPeers, id: \.self) { peerID in
-                            let displayName = peerID == myPeerID ? viewModel.nickname : (peerNicknames[peerID] ?? "person-\(peerID.prefix(4))")
+                            let displayName = viewModel.displayName(for: peerID)
                             let rssi = peerRSSI[peerID]?.intValue ?? -100
                             let isFavorite = viewModel.isFavorite(peerID: peerID)
                             let isMe = peerID == myPeerID

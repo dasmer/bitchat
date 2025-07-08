@@ -1215,6 +1215,44 @@ class ChatViewModel: ObservableObject {
         let nicknames = meshService.getPeerNicknames()
         return nicknames.first(where: { $0.value == nickname })?.key
     }
+
+    static func computeDisplayName(peerID: String,
+                                   nickname: String?,
+                                   allNicknames: [String: String],
+                                   myNickname: String,
+                                   fingerprint: String?,
+                                   isSelf: Bool = false) -> String {
+        let baseName = nickname ?? "person-\(peerID.prefix(4))"
+
+        var count = allNicknames.values.filter { $0 == baseName }.count
+        if myNickname == baseName { count += 1 }
+
+        if !isSelf && count > 1, nickname != nil {
+            let short = String((fingerprint ?? peerID).prefix(4))
+            return "\(baseName)-\(short)"
+        }
+
+        return baseName
+    }
+
+    func displayName(for peerID: String) -> String {
+        let all = meshService.getPeerNicknames()
+        let nick: String? = {
+            if peerID == meshService.myPeerID {
+                return nickname
+            } else {
+                return all[peerID]
+            }
+        }()
+
+        let fingerprint = peerIDToPublicKeyFingerprint[peerID]
+        return ChatViewModel.computeDisplayName(peerID: peerID,
+                                               nickname: nick,
+                                               allNicknames: all,
+                                               myNickname: nickname,
+                                               fingerprint: fingerprint,
+                                               isSelf: peerID == meshService.myPeerID)
+    }
     
     // PANIC: Emergency data clearing for activist safety
     func panicClearAllData() {
@@ -1340,17 +1378,21 @@ class ChatViewModel: ObservableObject {
         
         let partial = String(beforeCursor[range]).lowercased()
         
-        // Get all available nicknames (excluding self)
         let peerNicknames = meshService.getPeerNicknames()
-        let allNicknames = Array(peerNicknames.values)
-        
-        // Filter suggestions
-        let suggestions = allNicknames.filter { nick in
+
+        // Filter peer IDs whose nickname matches the partial text
+        let matchingPeers = peerNicknames.filter { (_, nick) in
             nick.lowercased().hasPrefix(partial)
-        }.sorted()
-        
-        if !suggestions.isEmpty {
-            autocompleteSuggestions = suggestions
+        }
+
+        let sortedPeers = matchingPeers.keys.sorted { id1, id2 in
+            let name1 = displayName(for: id1)
+            let name2 = displayName(for: id2)
+            return name1 < name2
+        }
+
+        if !sortedPeers.isEmpty {
+            autocompleteSuggestions = sortedPeers
             showAutocomplete = true
             autocompleteRange = match.range(at: 0) // Store full @mention range
             selectedAutocompleteIndex = 0
@@ -1362,12 +1404,14 @@ class ChatViewModel: ObservableObject {
         }
     }
     
-    func completeNickname(_ nickname: String, in text: inout String) -> Int {
+    func completeNickname(_ peerID: String, in text: inout String) -> Int {
         guard let range = autocompleteRange else { return text.count }
-        
+
+        let nicknameToInsert = meshService.getPeerNicknames()[peerID] ?? peerID
+
         // Replace the @partial with @nickname
         let nsText = text as NSString
-        let newText = nsText.replacingCharacters(in: range, with: "@\(nickname) ")
+        let newText = nsText.replacingCharacters(in: range, with: "@\(nicknameToInsert) ")
         text = newText
         
         // Hide autocomplete
@@ -1377,7 +1421,7 @@ class ChatViewModel: ObservableObject {
         selectedAutocompleteIndex = 0
         
         // Return new cursor position (after the space)
-        return range.location + nickname.count + 2
+        return range.location + nicknameToInsert.count + 2
     }
     
     func getSenderColor(for message: BitchatMessage, colorScheme: ColorScheme) -> Color {
@@ -1434,18 +1478,24 @@ class ChatViewModel: ObservableObject {
                 }
                 
                 // Add the match with appropriate styling
-                let matchText = String(contentText[range])
+                var matchText = String(contentText[range])
                 var matchStyle = AttributeContainer()
                 matchStyle.font = .system(size: 14, weight: .semibold, design: .monospaced)
-                
+
                 if matchType == "mention" {
                     matchStyle.foregroundColor = Color.orange
+
+                    // Replace with display name if we know the peer
+                    let nick = String(matchText.dropFirst())
+                    if let peerID = getPeerIDForNickname(nick) {
+                        matchText = "@" + displayName(for: peerID)
+                    }
                 } else {
                     // Hashtag
                     matchStyle.foregroundColor = Color.blue
                     matchStyle.underlineStyle = .single
                 }
-                
+
                 processedContent.append(AttributedString(matchText).mergingAttributes(matchStyle))
                 
                 lastEndIndex = range.upperBound
@@ -1480,7 +1530,13 @@ class ChatViewModel: ObservableObject {
         
         if message.sender != "system" {
             // Sender
-            let sender = AttributedString("<@\(message.sender)> ")
+            let senderDisplay: String
+            if let peerID = message.senderPeerID {
+                senderDisplay = displayName(for: peerID)
+            } else {
+                senderDisplay = message.sender
+            }
+            let sender = AttributedString("<@\(senderDisplay)> ")
             var senderStyle = AttributeContainer()
             
             // Get sender color
@@ -1538,17 +1594,22 @@ class ChatViewModel: ObservableObject {
                     }
                     
                     // Add styled match
-                    let matchText = String(content[nsRange])
+                    var matchText = String(content[nsRange])
                     var matchStyle = AttributeContainer()
                     matchStyle.font = .system(size: 14, weight: .semibold, design: .monospaced)
-                    
+
                     if type == "hashtag" {
                         matchStyle.foregroundColor = Color.blue
                         matchStyle.underlineStyle = .single
                     } else if type == "mention" {
                         matchStyle.foregroundColor = Color.orange
+
+                        let nick = String(matchText.dropFirst())
+                        if let peerID = getPeerIDForNickname(nick) {
+                            matchText = "@" + displayName(for: peerID)
+                        }
                     }
-                    
+
                     result.append(AttributedString(matchText).mergingAttributes(matchStyle))
                     lastEnd = nsRange.upperBound
                 }
@@ -1602,7 +1663,13 @@ class ChatViewModel: ObservableObject {
             contentStyle.font = .system(size: 12, design: .monospaced).italic()
             result.append(content.mergingAttributes(contentStyle))
         } else {
-            let sender = AttributedString("<\(message.sender)> ")
+            let senderDisplay: String
+            if let peerID = message.senderPeerID {
+                senderDisplay = displayName(for: peerID)
+            } else {
+                senderDisplay = message.sender
+            }
+            let sender = AttributedString("<\(senderDisplay)> ")
             var senderStyle = AttributeContainer()
             
             // Get RSSI-based color
@@ -1991,7 +2058,6 @@ extension ChatViewModel: BitchatDelegate {
                 messages.append(systemMessage)
             }
         case "/w":
-            let peerNicknames = meshService.getPeerNicknames()
             if connectedPeers.isEmpty {
                 let systemMessage = BitchatMessage(
                     sender: "system",
@@ -2001,9 +2067,9 @@ extension ChatViewModel: BitchatDelegate {
                 )
                 messages.append(systemMessage)
             } else {
-                let onlineList = connectedPeers.compactMap { peerID in
-                    peerNicknames[peerID]
-                }.sorted().joined(separator: ", ")
+                let onlineList = connectedPeers.map { displayName(for: $0) }
+                    .sorted()
+                    .joined(separator: ", ")
                 
                 let systemMessage = BitchatMessage(
                     sender: "system",
@@ -2877,9 +2943,15 @@ extension ChatViewModel: BitchatDelegate {
     
     func didConnectToPeer(_ peerID: String) {
         isConnected = true
+
+        var name = peerID
+        if let actualID = getPeerIDForNickname(peerID) {
+            name = displayName(for: actualID)
+        }
+
         let systemMessage = BitchatMessage(
             sender: "system",
-            content: "\(peerID) connected",
+            content: "\(name) connected",
             timestamp: Date(),
             isRelay: false,
             originalSender: nil
@@ -2891,9 +2963,14 @@ extension ChatViewModel: BitchatDelegate {
     }
     
     func didDisconnectFromPeer(_ peerID: String) {
+        var name = peerID
+        if let actualID = getPeerIDForNickname(peerID) {
+            name = displayName(for: actualID)
+        }
+
         let systemMessage = BitchatMessage(
             sender: "system",
-            content: "\(peerID) disconnected",
+            content: "\(name) disconnected",
             timestamp: Date(),
             isRelay: false,
             originalSender: nil
