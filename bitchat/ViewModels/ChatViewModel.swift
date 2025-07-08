@@ -1216,6 +1216,19 @@ class ChatViewModel: ObservableObject {
         return nicknames.first(where: { $0.value == nickname })?.key
     }
 
+    func getPeerIDForDisplayName(_ name: String) -> String? {
+        if let id = getPeerIDForNickname(name) {
+            return id
+        }
+        let nicknames = meshService.getPeerNicknames()
+        for (id, _) in nicknames {
+            if displayName(for: id) == name {
+                return id
+            }
+        }
+        return nil
+    }
+
     static func computeDisplayName(peerID: String,
                                    nickname: String?,
                                    allNicknames: [String: String],
@@ -1358,7 +1371,7 @@ class ChatViewModel: ObservableObject {
         let beforeCursor = String(text.prefix(cursorPosition))
         
         // Look for @ pattern
-        let pattern = "@([a-zA-Z0-9_]*)$"
+        let pattern = "@([a-zA-Z0-9_-]*)$"
         guard let regex = try? NSRegularExpression(pattern: pattern, options: []),
               let match = regex.firstMatch(in: beforeCursor, options: [], range: NSRange(location: 0, length: beforeCursor.count)) else {
             showAutocomplete = false
@@ -1407,7 +1420,7 @@ class ChatViewModel: ObservableObject {
     func completeNickname(_ peerID: String, in text: inout String) -> Int {
         guard let range = autocompleteRange else { return text.count }
 
-        let nicknameToInsert = meshService.getPeerNicknames()[peerID] ?? peerID
+        let nicknameToInsert = displayName(for: peerID)
 
         // Replace the @partial with @nickname
         let nsText = text as NSString
@@ -1445,7 +1458,7 @@ class ChatViewModel: ObservableObject {
         var processedContent = AttributedString()
         
         // Regular expressions for mentions and hashtags
-        let mentionPattern = "@([a-zA-Z0-9_]+)"
+        let mentionPattern = "@([a-zA-Z0-9_]+(?:-[a-zA-Z0-9]{4})?)"
         let hashtagPattern = "#([a-zA-Z0-9_]+)"
         
         let mentionRegex = try? NSRegularExpression(pattern: mentionPattern, options: [])
@@ -1487,7 +1500,7 @@ class ChatViewModel: ObservableObject {
 
                     // Replace with display name if we know the peer
                     let nick = String(matchText.dropFirst())
-                    if let peerID = getPeerIDForNickname(nick) {
+                    if let peerID = getPeerIDForDisplayName(nick) {
                         matchText = "@" + displayName(for: peerID)
                     }
                 } else {
@@ -1557,7 +1570,7 @@ class ChatViewModel: ObservableObject {
             // Process content with hashtags and mentions
             let content = message.content
             let hashtagPattern = "#([a-zA-Z0-9_]+)"
-            let mentionPattern = "@([a-zA-Z0-9_]+)"
+            let mentionPattern = "@([a-zA-Z0-9_]+(?:-[a-zA-Z0-9]{4})?)"
             
             let hashtagRegex = try? NSRegularExpression(pattern: hashtagPattern, options: [])
             let mentionRegex = try? NSRegularExpression(pattern: mentionPattern, options: [])
@@ -1577,7 +1590,9 @@ class ChatViewModel: ObservableObject {
             
             // Build content with styling
             var lastEnd = content.startIndex
-            let isMentioned = message.mentions?.contains(nickname) ?? false
+            let myDisplayName = displayName(for: meshService.myPeerID)
+            let isMentioned = message.mentions?.contains(nickname) ?? false ||
+                               message.mentions?.contains(myDisplayName) ?? false
             
             for (range, type) in allMatches {
                 // Add text before match
@@ -1605,7 +1620,7 @@ class ChatViewModel: ObservableObject {
                         matchStyle.foregroundColor = Color.orange
 
                         let nick = String(matchText.dropFirst())
-                        if let peerID = getPeerIDForNickname(nick) {
+                        if let peerID = getPeerIDForDisplayName(nick) {
                             matchText = "@" + displayName(for: peerID)
                         }
                     }
@@ -1693,7 +1708,7 @@ class ChatViewModel: ObservableObject {
             var processedContent = AttributedString()
             
             // Regular expression to find @mentions
-            let pattern = "@([a-zA-Z0-9_]+)"
+            let pattern = "@([a-zA-Z0-9_]+(?:-[a-zA-Z0-9]{4})?)"
             let regex = try? NSRegularExpression(pattern: pattern, options: [])
             let matches = regex?.matches(in: contentText, options: [], range: NSRange(location: 0, length: contentText.count)) ?? []
             
@@ -2845,7 +2860,9 @@ extension ChatViewModel: BitchatDelegate {
         }
         
         // Check if we're mentioned
-        let isMentioned = message.mentions?.contains(nickname) ?? false
+        let myDisplayName = displayName(for: meshService.myPeerID)
+        let isMentioned = message.mentions?.contains(nickname) ?? false ||
+                          message.mentions?.contains(myDisplayName) ?? false
         
         // Send notifications for mentions and private messages when app is in background
         if isMentioned && message.sender != nickname {
@@ -3008,25 +3025,29 @@ extension ChatViewModel: BitchatDelegate {
     }
     
     private func parseMentions(from content: String) -> [String] {
-        let pattern = "@([a-zA-Z0-9_]+)"
+        let pattern = "@([a-zA-Z0-9_]+(?:-[a-zA-Z0-9]{4})?)"
         let regex = try? NSRegularExpression(pattern: pattern, options: [])
         let matches = regex?.matches(in: content, options: [], range: NSRange(location: 0, length: content.count)) ?? []
-        
+
         var mentions: [String] = []
         let peerNicknames = meshService.getPeerNicknames()
-        let allNicknames = Set(peerNicknames.values).union([nickname]) // Include self
+        var validNames = Set(peerNicknames.values)
+        validNames.insert(nickname) // self
+        for peerID in peerNicknames.keys {
+            validNames.insert(displayName(for: peerID))
+        }
+        validNames.insert(displayName(for: meshService.myPeerID))
         
         for match in matches {
             if let range = Range(match.range(at: 1), in: content) {
                 let mentionedName = String(content[range])
-                // Only include if it's a valid nickname
-                if allNicknames.contains(mentionedName) {
+                if validNames.contains(mentionedName) {
                     mentions.append(mentionedName)
                 }
             }
         }
-        
-        return Array(Set(mentions)) // Remove duplicates
+
+        return Array(Set(mentions))
     }
     
     func isFavorite(fingerprint: String) -> Bool {
