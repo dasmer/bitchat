@@ -168,8 +168,7 @@ struct ContentView: View {
     
     private var headerView: some View {
         HStack {
-            if let privatePeerID = viewModel.selectedPrivateChatPeer,
-               let privatePeerNick = viewModel.meshService.getPeerNicknames()[privatePeerID] {
+            if let privatePeerID = viewModel.selectedPrivateChatPeer {
                 // Private chat header
                 Button(action: {
                     viewModel.endPrivateChat()
@@ -190,7 +189,7 @@ struct ContentView: View {
                     Image(systemName: "lock.fill")
                         .font(.system(size: 14))
                         .foregroundColor(Color.orange)
-                    Text("\(privatePeerNick)")
+                    Text("\(viewModel.displayName(for: privatePeerID))")
                         .font(.system(size: 16, weight: .medium, design: .monospaced))
                         .foregroundColor(Color.orange)
                 }
